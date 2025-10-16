@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Wall of Entropy — GPU WebGL Shader</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    html,body { height:100%; margin:0; background:#050508; color:#ddd; font-family: system-ui, -apple-system, "Segoe UI", Roboto; }
+    #controls { position:fixed; right:16px; top:16px; background:rgba(0,0,0,0.35); padding:10px; border-radius:8px; backdrop-filter: blur(4px); }
+    a { color: #9ecbff }
+    .small { font-size:13px; color:#bbb }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <div style="font-weight:600">Wall of Entropy — GPU WebGL</div>
+    <div class="small">Press Space to pause / resume. Use ? to toggle UI (not required).</div>
+    <div style="margin-top:8px" class="small">Loop duration: <span id="loopVal">12</span>s</div>
+  </div>
+
+  <!-- p5.js -->
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.8.1/lib/p5.min.js"></script>
+
+  <!-- vertex shader (kept in document for convenience) -->
+  <script id="vert" type="x-shader/x-vertex">
+    attribute vec3 aPosition;
+    attribute vec2 aTexCoord;
+    varying vec2 vTexCoord;
+    void main() {
+      vTexCoord = aTexCoord;
+      gl_Position = vec4(aPosition, 1.0);
+    }
+  </script>
+
+  <!-- fragment shader (kept here for convenience) -->
+  <script id="frag" type="x-shader/x-fragment">
+    precision mediump float;
+    varying vec2 vTexCoord;
+    uniform vec2 u_resolution;
+    uniform float u_time;
+    uniform float u_loop; // loop duration in seconds
+    uniform float u_pixel_ratio;
+
+    // Hash / basic noise (IQ style)
+    float hash(vec2 p) {
+      return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453123);
+    }
+    float noise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      float a = hash(i);
+      float b = hash(i + vec2(1.0, 0.0));
+      float c = hash(i + vec2(0.0, 1.0));
+      float d = hash(i + vec2(1.0, 1.0));
+      vec2 u = f*f*(3.0 - 2.0*f);
+      return mix(a, mix(b, c, u.x), u.y);
+    }
+    float fbm(vec2 p) {
+      float v = 0.0;
+      float a = 0.5;
+      mat2 m = mat2(1.6,1.2,-1.2,1.6);
+      for (int i = 0; i < 5; i++) {
+        v += a * noise(p);
+        p = m * p * 1.7;
+        a *= 0.5;
+      }
+      return v;
+    }
+
+    // palette
+    vec3 palette(float t, vec3 a, vec3 b, vec3 c, vec3 d) {
+      return a + b * cos(6.28318*(c*t + d));
+    }
+
+    void main(){
+      // normalized coordinates centered at 0
+      vec2 uv = (vTexCoord - 0.5) * vec2(u_resolution.x / u_resolution.y, 1.0);
+      float t = mod(u_time, u_loop);
+      // map time onto a circle for perfect loopability
+      float angle = (t / u_loop) * 6.28318530718;
+      vec2 timeVec = vec2(cos(angle), sin(angle));
+
+      // base background
+      vec3 bg = vec3(0.02, 0.015, 0.025);
+
+      // compose many lamps in a grid
+      const int COLS = 5;
+      const int ROWS = 4;
+      int total = COLS * ROWS;
+      float cellW = 2.0 / float(COLS);
+      float cellH = 2.0 / float(ROWS);
+
+      vec3 color = vec3(0.0);
+      float accum = 0.0;
+
+      // for each cell produce a soft lamp
+      for (int y = 0; y < ROWS; y++) {
+        for (int x = 0; x < COLS; x++) {
+          // compute cell center in uv-space
+          vec2 cellCenter = vec2(
+            -1.0 + (float(x) + 0.5) * cellW,
+            -1.0 + (float(y) + 0.5) * cellH
+          );
+
+          // small local coordinates
+          vec2 lp = (uv - cellCenter) / 0.9;
+
+          // seed per-lamp (deterministic)
+          float seed = float(x*31 + y*97);
+
+          // animate multiple blobs that rotate/oscillate; make motion depend on timeVec for loopability
+          float nblobs = 4.0 + mod(seed, 3.0);
+          float local = 0.0;
+          for (int i = 0; i < 5; i++) {
+            float fi = float(i);
+            float phase = seed*0.19 + fi * 2.3;
+            // angle for orbiting blob: combines global looping angle + seeded offsets
+            float ang = angle* (0.8 + 0.2*sin(seed*0.7+fi)) + phase;
+            float r = 0.14 + 0.10 * sin(seed*1.9 + fi*0.5);
+            vec2 center = vec2(cos(ang+fi)*r, sin(ang*0.9 - fi*0.6)*r) * (0.9 + 0.2*noise(vec2(seed,fi)));
+            // jitter with fbm for organic motion (but keep periodic by using timeVec in sample)
+            vec2 jitterInput = vec2(seed*13.1 + fi*7.3, dot(timeVec, vec2(1.0, -1.0))*0.5);
+            vec2 jitter = vec2(fbm(jitterInput + vec2(0.0, seed*0.01)), fbm(jitterInput + vec2(1.0, seed*0.01))) * 0.03;
+            vec2 cpos = center + jitter;
+            float dist = length(lp - cpos);
+            // soft circular blob with a little noise modulation
+            float blob = smoothstep(0.45, 0.0, dist + 0.12*fbm((lp - cpos)*3.0 + vec2(seed,fi)));
+            local += blob * (0.6 + 0.4*sin(seed*1.3 + fi));
+          }
+          local = clamp(local, 0.0, 1.5);
+
+          // color per-lamp from palette seeds
+          vec3 a = vec3(0.8, 0.2, 0.12) * (0.6 + 0.4*sin(seed*0.3));
+          vec3 b = vec3(0.2, 0.7, 0.9) * (0.4 + 0.6*cos(seed*0.5));
+          vec3 c = vec3(1.0, 1.0, 1.0);
+          vec3 d = vec3(0.0, 0.33, 0.67);
+
+          float palt = fract(seed*0.13 + 0.2 * sin(seed*0.7));
+          vec3 lampColor = mix(a, b, smoothstep(0.0, 1.0, palt));
+          // tint variation
+          lampColor *= 0.6 + 0.8 * smoothstep(0.0, 1.0, local);
+
+          // accumulate additive glow
+          color += lampColor * local * 0.9;
+          accum += local * 0.9;
+        }
+      }
+
+      // tone and vignette
+      color = color * 0.6 + vec3(0.02, 0.015, 0.02) * (1.0 - min(accum/float(total), 1.0));
+      // subtle overall fbm overlay for organic flow
+      float flow = fbm(uv*1.2 + timeVec*0.6);
+      color *= 0.95 + 0.12*flow;
+
+      // vignette
+      float v = length(uv) / 1.6;
+      color *= smoothstep(1.2, 0.6, v);
+
+      // gamma
+      color = pow(color, vec3(0.9));
+
+      gl_FragColor = vec4(color, 1.0);
+    }
+  </script>
+
+  <!-- main sketch -->
+  <script src="sketch.js"></script>
+</body>
+</html>
