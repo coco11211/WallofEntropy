@@ -40,7 +40,7 @@
     uniform float u_time;
     uniform float u_loop; // loop duration in seconds
     uniform float u_pixel_ratio;
-    uniform float u_random_seeds[20]; // truly random seeds for each lamp (5x4=20)
+    uniform float u_random_seeds[20]; // truly random seeds for each lamp (MUST match COLS*ROWS = 5*4 = 20)
 
     // Hash / basic noise (IQ style)
     float hash(vec2 p) {

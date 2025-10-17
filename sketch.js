@@ -17,7 +17,7 @@ function preload() {
     const randomBytes = new Uint32Array(numLamps);
     window.crypto.getRandomValues(randomBytes);
     for (let i = 0; i < numLamps; i++) {
-      randomSeeds[i] = randomBytes[i] / 0xFFFFFFFF; // normalize to 0-1
+      randomSeeds[i] = randomBytes[i] / (0xFFFFFFFF + 1); // normalize to [0,1)
     }
   } else {
     // Fallback to Math.random if crypto not available

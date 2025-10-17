@@ -9,7 +9,7 @@ echo.
 echo Starting local web server...
 echo.
 
-REM Check if Python 3 is available
+REM Check if Python is available
 where python >nul 2>nul
 if %errorlevel% == 0 (
     echo Using Python to start server on http://localhost:8000
@@ -20,23 +20,11 @@ if %errorlevel% == 0 (
     start http://localhost:8000/index.html
     python -m http.server 8000
 ) else (
-    REM Check if Python 2 is available
-    where python2 >nul 2>nul
-    if %errorlevel% == 0 (
-        echo Using Python 2 to start server on http://localhost:8000
-        echo.
-        echo Press Ctrl+C to stop the server when done.
-        echo.
-        timeout /t 2 >nul
-        start http://localhost:8000/index.html
-        python2 -m SimpleHTTPServer 8000
-    ) else (
-        echo ERROR: Python is not installed or not in PATH.
-        echo.
-        echo Please install Python from https://www.python.org/
-        echo OR simply open index.html directly in your browser.
-        echo.
-        pause
-        exit /b 1
-    )
+    echo ERROR: Python is not installed or not in PATH.
+    echo.
+    echo Please install Python 3 from https://www.python.org/
+    echo OR simply open index.html directly in your browser.
+    echo.
+    pause
+    exit /b 1
 )
